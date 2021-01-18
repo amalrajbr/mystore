@@ -44,10 +44,6 @@ get_image_data(next_id)	->
 	end;
 get_image_data(select_all)	->
 	mnesia:dirty_select(image_data, [{#image_data{_='_'}, [], ['$_']}]);
-get_image_data({image_name, Name})		->
-	MatchHead = #image_data{image_name = Name, _='_'},
-	Result = '$_',
-	mnesia:dirty_select(image_data,[{MatchHead, [], [Result]}]);
 get_image_data({b64_image_size, Size})		->
 	MatchHead = #image_data{b64_image_size = '$1', _='_'},
 	Result = '$_',
@@ -59,7 +55,21 @@ get_image_data({raw_image_size, Size})		->
 get_image_data({id, Id})		->
 	MatchHead = #image_data{id = Id, _='_'},
 	Result = '$_',
-	mnesia:dirty_select(image_data,[{MatchHead, [], [Result]}]).
+	mnesia:dirty_select(image_data,[{MatchHead, [], [Result]}]);
+get_image_data({image_name, ToSearch})	->
+	{GuardList, MatchHead} =
+		case binary_part(ToSearch, {byte_size(ToSearch), -3}) == <<"...">> of
+			true	->
+				MatchHead1 = #image_data{image_name = '$1', _='_'},
+				SearchPattern = binary_part(ToSearch, {0, byte_size(ToSearch)-3}),
+				GuardA = {'>=', '$1', SearchPattern},
+				GuardB = {'=<', '$1', << SearchPattern/binary, 255 >>},
+				{[GuardA, GuardB], MatchHead1};
+			false	->
+				{[], #image_data{image_name = ToSearch, _='_'}}
+		end,
+	Result = '$_',
+	mnesia:dirty_select(image_data,[{MatchHead, GuardList, [Result]}]).
 	
 insert_image_data(ImageData)	->
 	mnesia:dirty_write(image_data, ImageData).
