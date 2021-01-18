@@ -4,20 +4,38 @@
 
 -export([start_mnesia/0
 				, stop_mnesia/0
-				, create_table/0
+				, create_table/1
 				, get_image_data/1
 				, insert_image_data/1
 				, delete_image_data/1
 				]).
 				
 start_mnesia()	->
-	mnesia:start().
+	mnesia:start(),
+	case  mnesia:table_info(schema, storage_type) of
+		disc_copies	-> ok;
+		_						->
+			mnesia:change_table_copy_type(schema, node(), disc_copies)
+	end,
+	LocalTables =  mnesia:system_info(local_tables) -- [schema],
+	TablesToBeCreated = 
+		(fun
+			Loop([], Acc)	-> Acc;
+			Loop([Table | RestTables], Acc) ->
+				case lists:member(Table, LocalTables) of
+					true	->	Loop(RestTables, Acc);
+					false	->	Loop(RestTables, [Table | Acc])
+				end
+		end)(?TABLE_LIST, []),
+	create_table(TablesToBeCreated).
 	
 stop_mnesia()		->
 	mnesia:stop().
 
-create_table()	->
-	mnesia:create_table(image_data, [{disc_copies, [node()]}, {attributes, record_info(fields, image_data)}, {type, ordered_set}]).
+create_table([])	->	ok;
+create_table([image_data|RestTables])	->
+	mnesia:create_table(image_data, [{disc_copies, [node()]}, {attributes, record_info(fields, image_data)}, {type, ordered_set}]),
+	create_table(RestTables).
 	
 get_image_data(next_id)	->
 	case mnesia:dirty_last(image_data) of

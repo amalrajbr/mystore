@@ -1,32 +1,32 @@
 -module(my_image_repository_utils).
 -export([
-				insert_image/1
-				, delete_image/1
+				insert_images/1
+				, delete_images/1
 				, filter_image/1
 				]).
 
 -include("my_image_repository.hrl").
 
-insert_image([]) ->
-	{ok, success};
-insert_image([Head | Rest]) ->
-	case insert_image(Head) of
-		ok							->	insert_image(Rest);
-		{error, Reason}	->	{error, Reason}
-	end;
+insert_images(Image) when is_record(Image, image_data) ->
+	insert_image([Image], []);
+insert_images(Images) ->
+	insert_image(Images, []).
+
+insert_image([], Responses) ->
+	{ok, Responses};
+insert_image([Head | Rest], Responses) ->
+	case catch insert_image(Head) of
+		ok							->
+			insert_image(Rest
+									, [{Head#image_data.image_name, success} | Responses]);
+		{X, Reason}	when X == 'EXIT'; X == error ->
+			insert_image(Rest
+									, [{Head#image_data.image_name, failure, Reason} | Responses])
+	end.
+
 insert_image(ImageData) when is_record(ImageData, image_data) ->
-	case catch insert_image1(ImageData) of
-		{error, Reason}	->
-			{error, Reason};
-		{ok, Data}			->
-			{ok, Data}
-	end;
-insert_image(_ImageData) ->
-	{error, invalid_data}.
-	
-insert_image1(ImageData) when is_record(ImageData, image_data) ->
 	ImageLocation = ImageData#image_data.b64_image,
-	case file:open(ImageLocation) of
+	case file:read_file(ImageLocation) of
 		{error, Reason}		->	{error, Reason};
 		{ok, BinaryData}	->
 			B64EncodedImage =
@@ -45,15 +45,25 @@ insert_image1(ImageData) when is_record(ImageData, image_data) ->
 				ok								->	ok;
 				{error, Reason2}	->	{error, Reason2}
 			end
+	end;
+insert_image(_ImageData) ->
+	{error, invalid_data}.
+
+delete_images(Id) when is_integer(Id) ->
+	delete_image([Id], []);
+delete_images(Ids)	->
+	delete_image(Ids, []).
+
+delete_image([], Responses)	->
+	{ok, Responses};
+delete_image([Id | Rest], Responses)	->
+	case catch delete_image(Id) of
+		ok							->
+			delete_image(Rest, [{Id, success} | Responses]);
+		{X, Reason}	when X == 'EXIT'; X == error ->
+			delete_image(Rest, [{Id, failure, Reason} | Responses])
 	end.
 
-delete_image([])	->
-	{ok, success};
-delete_image([Head | Rest])	->
-	case delete_image(Head) of
-		ok							->	insert_image(Rest);
-		{error, Reason}	->	{error, Reason}
-	end;
 delete_image(Id) when is_integer(Id)	->
 	mnesia:dirty_delete(image_data, Id);
 delete_image(_Id)											->
@@ -65,7 +75,7 @@ filter_image({id, Id})								->
 		[ImageData]	->	{ok, ImageData}
 	end;
 filter_image({image_name, ImageName})	->
-	case my_image_repository_mnesia:get_image_data({image_name, ImageName}) of
+	case my_image_repository_mnesia:get_image_data({image_name, ensure_binary(ImageName)}) of
 		[ImageData]	->	{ok, ImageData};
 		[]					->
 			case my_image_repository_mnesia:get_image_data(select_all) of
@@ -75,7 +85,8 @@ filter_image({image_name, ImageName})	->
 						(fun
 							Loop([], Acc)				->	Acc;
 							Loop([H|Rest], Acc)	->
-								case binary:match(H#image_data.image_name, ImageName) of
+								case binary:match(ensure_binary(H#image_data.image_name)
+																, ensure_binary(ImageName)) of
 									nomatch	->	Loop(Rest, Acc);
 									_Match	->	Loop(Rest, [H|Acc])
 								end
@@ -86,8 +97,12 @@ filter_image({image_name, ImageName})	->
 					end
 			end
 	end;
-filter_image({image_size, Size})			->
-	case my_image_repository_mnesia:get_image_data({image_size, Size}) of
+filter_image({ImageSize, Size}) when ImageSize == raw_image_size
+																; ImageSize == b64_image_size	->
+	case my_image_repository_mnesia:get_image_data({ImageSize, Size}) of
 		[]					->	{ok, no_data};
-		[ImageData]	->	{ok, ImageData}
+		ImageData		->	{ok, ImageData}
 	end.
+	
+ensure_binary(X) when is_list(X) -> list_to_binary(X);
+ensure_binary(X) -> X.
