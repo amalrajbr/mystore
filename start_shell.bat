@@ -1,0 +1,1 @@
+werl -emake -eval "make:all(), application:start(my_image_repository)"
