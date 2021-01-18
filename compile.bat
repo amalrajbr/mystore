@@ -1,0 +1,1 @@
+werl -emake -eval "make:all()"
